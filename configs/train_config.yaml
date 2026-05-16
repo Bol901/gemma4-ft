@@ -1,12 +1,19 @@
 # Single source of truth for tunable hyperparameters. Nothing here should
 # be hard-coded in the Python modules.
 
+# Target hardware: 8x NVIDIA H200 141GB (Hopper, SM 9.0). 31B bf16 weights
+# (~62GB) fit on a single H200, so ZeRO-2 (optimizer/grad sharding +
+# data parallel) is sufficient -- no ZeRO-3/FSDP param sharding needed.
 model:
   model_id: "google/gemma-4-31b-it"   # verify exact id on the training host
   torch_dtype: "bfloat16"
   use_qlora: false
   train_vision_encoder: false
   train_projector: true
+  # Hopper supports flash_attention_2; "sdpa" is the safe fast default
+  # (no extra dependency). Switch to "flash_attention_2" once flash-attn
+  # is installed on the host for a further speedup.
+  attn_implementation: "sdpa"
 
 lora:
   r: 64
@@ -35,9 +42,14 @@ data:
 training:
   output_dir: "./checkpoints"
   num_train_epochs: 3
-  per_device_train_batch_size: 1
-  per_device_eval_batch_size: 1
-  gradient_accumulation_steps: 16
+  # 8 GPUs x bs 2 x accum 4 = effective batch 64 (same as the original
+  # 4xA6000 plan, so LR/schedule stay valid). 141GB has ample headroom;
+  # the host can raise per_device_train_batch_size and lower accum after
+  # the dry run. gradient_checkpointing can likely be disabled on H200
+  # for ~20-30% speedup once batch size is confirmed to fit.
+  per_device_train_batch_size: 2
+  per_device_eval_batch_size: 2
+  gradient_accumulation_steps: 4
   gradient_checkpointing: true
   learning_rate: 1.0e-4
   warmup_ratio: 0.03

@@ -86,6 +86,7 @@ def main() -> None:
         use_qlora=m["use_qlora"],
         torch_dtype=_DTYPES[m["torch_dtype"]],
         gradient_checkpointing=tr["gradient_checkpointing"],
+        attn_implementation=m.get("attn_implementation", "sdpa"),
     )
 
     train_ds = GBMSliceDataset(

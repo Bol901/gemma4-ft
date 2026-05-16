@@ -85,7 +85,7 @@ def load_model_with_lora(
     use_qlora: bool = False,
     torch_dtype: torch.dtype = torch.bfloat16,
     gradient_checkpointing: bool = True,
-    attn_implementation: str = "eager",
+    attn_implementation: str = "sdpa",
 ):
     """Load the model in bf16 (or 4-bit), freeze it, then attach LoRA.
 

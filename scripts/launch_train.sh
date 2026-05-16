@@ -10,7 +10,7 @@
 set -euo pipefail
 
 CONFIG="${CONFIG:-configs/train_config.yaml}"
-NUM_GPUS="${NUM_GPUS:-4}"
+NUM_GPUS="${NUM_GPUS:-8}"   # 8x H200 141GB
 EXTRA_ARGS="$*"
 
 export TOKENIZERS_PARALLELISM=false

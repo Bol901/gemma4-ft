@@ -6,8 +6,13 @@
 
 ## 硬件
 
-- 4× NVIDIA A6000 (48GB each, 192GB total), Ampere SM 8.6
-- 不支持 FP8 / FP4（Blackwell only），用 bf16 + AWQ 或 bf16 + LoRA
+- 8× NVIDIA H200 (141GB each, 1128GB total), Hopper SM 9.0
+- 31B bf16 权重 (~62GB) 单卡即可放下 → ZeRO-2 足够,无需 ZeRO-3/FSDP
+  param sharding
+- Hopper 支持 FP8(FP4 仍 Blackwell-only);本实现用 bf16 + LoRA,
+  attn 默认 `sdpa`(host 装好 flash-attn 后可换 `flash_attention_2`)
+- (原 spec 假设 4×A6000 48GB,该前提下 ZeRO-2 会 OOM,需 ZeRO-3/QLoRA;
+  现按 8×H200 调参,见 configs/train_config.yaml)
 
 ## 技术栈
 
