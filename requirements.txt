@@ -1,0 +1,19 @@
+# Core DL stack. transformers must be a version that ships the Gemma 4
+# multimodal classes; pin/upgrade on the training host (see model/load_model.py).
+torch>=2.4
+transformers>=4.49
+peft>=0.11
+accelerate>=0.30
+deepspeed>=0.14
+bitsandbytes>=0.43      # optional, only for QLoRA
+# Data / IO
+nibabel>=5.2
+numpy>=1.24
+Pillow>=10.0
+PyYAML>=6.0
+# Logging / eval
+wandb>=0.17
+nltk>=3.8               # BLEU
+rouge-score>=0.1.2      # ROUGE-L
+# Dev
+pytest>=8.0
