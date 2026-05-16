@@ -34,7 +34,13 @@ _DTYPES = {"bfloat16": torch.bfloat16, "float16": torch.float16, "float32": torc
 
 
 def _enable_fast_math() -> None:
-    """TF32 for any fp32 matmul/conv paths (free speedup, no bf16 impact)."""
+    """Allow TF32 for any *fp32* matmul/conv that isn't autocast to bf16.
+
+    Note: in this bf16 + DeepSpeed run almost nothing hits an fp32 matmul,
+    so this is near-zero gain in practice -- kept only as harmless hygiene
+    (it has no effect on the bf16 numeric path). The real speedups are
+    no-grad-checkpointing / FA2 / Liger / batch size / torch.compile.
+    """
     torch.set_float32_matmul_precision("high")
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
