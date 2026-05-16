@@ -33,6 +33,28 @@ logger = logging.getLogger("train")
 _DTYPES = {"bfloat16": torch.bfloat16, "float16": torch.float16, "float32": torch.float32}
 
 
+def _enable_fast_math() -> None:
+    """TF32 for any fp32 matmul/conv paths (free speedup, no bf16 impact)."""
+    torch.set_float32_matmul_precision("high")
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+
+
+def _liger_supported(enabled: bool) -> bool:
+    """Use Liger only if requested AND the package is importable."""
+    if not enabled:
+        return False
+    try:
+        import liger_kernel  # noqa: F401
+    except ImportError:
+        logger.warning(
+            "use_liger_kernel=true but liger-kernel not installed; "
+            "continuing without it."
+        )
+        return False
+    return True
+
+
 def load_config(path: str) -> dict:
     with open(path) as f:
         return yaml.safe_load(f)
@@ -75,6 +97,8 @@ def main() -> None:
     cfg = load_config(args.config)
     m, lo, d, tr = cfg["model"], cfg["lora"], cfg["data"], cfg["training"]
 
+    _enable_fast_math()
+
     model, processor = load_model_with_lora(
         model_id=m["model_id"],
         lora_r=lo["r"],
@@ -89,20 +113,17 @@ def main() -> None:
         attn_implementation=m.get("attn_implementation", "sdpa"),
     )
 
-    train_ds = GBMSliceDataset(
-        d["train_jsonl"], processor,
-        n_slices=d["n_slices"], total_slices=d["total_slices"],
+    _ds_kw = dict(
+        n_slices=d["n_slices"],
+        total_slices=d["total_slices"],
         max_soft_tokens=d["max_soft_tokens"],
-        cache_slices=d["cache_slices"], cache_dir=d["cache_dir"],
+        cache_slices=d["cache_slices"],
+        cache_dir=d["cache_dir"],
+        cache_compressed=d.get("cache_compressed", False),
         is_training=True,
     )
-    eval_ds = GBMSliceDataset(
-        d["eval_jsonl"], processor,
-        n_slices=d["n_slices"], total_slices=d["total_slices"],
-        max_soft_tokens=d["max_soft_tokens"],
-        cache_slices=d["cache_slices"], cache_dir=d["cache_dir"],
-        is_training=True,
-    )
+    train_ds = GBMSliceDataset(d["train_jsonl"], processor, **_ds_kw)
+    eval_ds = GBMSliceDataset(d["eval_jsonl"], processor, **_ds_kw)
 
     if args.overfit:
         train_ds.rows = train_ds.rows[:10]
@@ -139,6 +160,13 @@ def main() -> None:
         deepspeed=tr["deepspeed"],
         remove_unused_columns=False,  # keep pixel_values
         dataloader_num_workers=tr["dataloader_num_workers"],
+        dataloader_pin_memory=tr.get("dataloader_pin_memory", True),
+        dataloader_persistent_workers=tr.get(
+            "dataloader_persistent_workers", False
+        ),
+        dataloader_prefetch_factor=tr.get("dataloader_prefetch_factor", None),
+        torch_compile=tr.get("torch_compile", False),
+        use_liger_kernel=_liger_supported(tr.get("use_liger_kernel", False)),
         seed=tr["seed"],
         logging_first_step=True,
     )

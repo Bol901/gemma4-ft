@@ -36,6 +36,7 @@ def load_or_extract_slices(
     cache_dir: Path,
     n_slices: int,
     cache_slices: bool = True,
+    cache_compressed: bool = False,
 ):
     """Return ``(list[PIL.Image], list[int])`` from cache, extracting on miss."""
     cpath = _cache_path(cache_dir, row["case_id"], row["sequence"])
@@ -51,7 +52,8 @@ def load_or_extract_slices(
     )
     if cache_slices:
         cache_dir.mkdir(parents=True, exist_ok=True)
-        np.savez_compressed(
+        save = np.savez_compressed if cache_compressed else np.savez
+        save(
             cpath,
             slices=np.stack([np.asarray(im) for im in imgs]),
             z_indices=np.asarray(z_indices, dtype=np.int32),
@@ -69,6 +71,7 @@ class GBMSliceDataset(Dataset):
         max_soft_tokens: int = 280,
         cache_slices: bool = True,
         cache_dir: str = "./slice_cache",
+        cache_compressed: bool = False,
         is_training: bool = True,
     ):
         self.processor = processor
@@ -76,6 +79,7 @@ class GBMSliceDataset(Dataset):
         self.total_slices = total_slices
         self.max_soft_tokens = max_soft_tokens
         self.cache_slices = cache_slices
+        self.cache_compressed = cache_compressed
         self.cache_dir = Path(cache_dir)
         self.is_training = is_training
 
@@ -103,7 +107,8 @@ class GBMSliceDataset(Dataset):
     def __getitem__(self, idx: int) -> dict:
         row = self.rows[idx]
         imgs, z_indices = load_or_extract_slices(
-            row, self.cache_dir, self.n_slices, self.cache_slices
+            row, self.cache_dir, self.n_slices, self.cache_slices,
+            self.cache_compressed,
         )
 
         messages = build_chat_messages(

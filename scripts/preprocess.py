@@ -32,7 +32,9 @@ logging.basicConfig(
 logger = logging.getLogger("preprocess")
 
 
-def _process_one(row: dict, cache_dir: str, n_slices: int) -> tuple:
+def _process_one(
+    row: dict, cache_dir: str, n_slices: int, compressed: bool
+) -> tuple:
     cache_dir = Path(cache_dir)
     out = cache_dir / f"{row['case_id']}_{row['sequence']}.npz"
     if out.exists():
@@ -42,7 +44,8 @@ def _process_one(row: dict, cache_dir: str, n_slices: int) -> tuple:
             row["nifti_path"], row.get("mask_path"), n_slices=n_slices
         )
         cache_dir.mkdir(parents=True, exist_ok=True)
-        np.savez_compressed(
+        save = np.savez_compressed if compressed else np.savez
+        save(
             out,
             slices=np.stack([np.asarray(im) for im in imgs]),
             z_indices=np.asarray(z, dtype=np.int32),
@@ -59,6 +62,12 @@ def main() -> None:
     ap.add_argument("--n_slices", type=int, default=16)
     ap.add_argument("--n_workers", type=int, default=16)
     ap.add_argument("--limit", type=int, default=0, help="0 = all (use for a 10-case smoke test)")
+    ap.add_argument(
+        "--compressed",
+        action="store_true",
+        help="zlib-compress the cache (smaller on disk, slower dataloader). "
+        "Default off for training-I/O speed; must match data.cache_compressed.",
+    )
     args = ap.parse_args()
 
     rows = []
@@ -74,7 +83,10 @@ def main() -> None:
     counts = {"ok": 0, "skipped": 0, "error": 0}
     with ProcessPoolExecutor(max_workers=args.n_workers) as ex:
         futs = [
-            ex.submit(_process_one, r, args.cache_dir, args.n_slices)
+            ex.submit(
+                _process_one, r, args.cache_dir, args.n_slices,
+                args.compressed,
+            )
             for r in rows
         ]
         for i, fut in enumerate(as_completed(futs), 1):

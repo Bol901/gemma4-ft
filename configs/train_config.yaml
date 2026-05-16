@@ -10,10 +10,10 @@ model:
   use_qlora: false
   train_vision_encoder: false
   train_projector: true
-  # Hopper supports flash_attention_2; "sdpa" is the safe fast default
-  # (no extra dependency). Switch to "flash_attention_2" once flash-attn
-  # is installed on the host for a further speedup.
-  attn_implementation: "sdpa"
+  # Hopper: flash_attention_2 is the fastest. load_model falls back to
+  # sdpa automatically if flash-attn isn't built on the host, so this is
+  # safe to leave on.
+  attn_implementation: "flash_attention_2"
 
 lora:
   r: 64
@@ -38,6 +38,10 @@ data:
   max_soft_tokens: 280
   cache_dir: "/scratch/slice_cache"
   cache_slices: true
+  # Uncompressed npz: ~1.7MB/case (~19GB for 11k) but no per-item zlib
+  # decode in the dataloader -> markedly faster training I/O. Set true
+  # only if /scratch is tight.
+  cache_compressed: false
 
 training:
   output_dir: "./checkpoints"
@@ -50,7 +54,18 @@ training:
   per_device_train_batch_size: 2
   per_device_eval_batch_size: 2
   gradient_accumulation_steps: 4
-  gradient_checkpointing: true
+  # Off by default: H200 141GB has headroom for 31B+LoRA, and disabling
+  # checkpointing is ~20-30% faster. The dry run will OOM-fail fast if
+  # this turns out too tight at the chosen batch size -> set true then.
+  gradient_checkpointing: false
+  # Liger fused RMSNorm/SwiGLU/cross-entropy kernels: big speed + memory
+  # win for Gemma. train.py skips it gracefully if liger-kernel isn't
+  # installed.
+  use_liger_kernel: true
+  # torch.compile: opt-in. Can be 1.2-2x but multimodal variable shapes
+  # may cause recompiles; validate on the host before enabling for a
+  # full run.
+  torch_compile: false
   learning_rate: 1.0e-4
   warmup_ratio: 0.03
   lr_scheduler_type: "cosine"
@@ -62,7 +77,13 @@ training:
   seed: 42
   deepspeed: "./configs/ds_zero2.json"
   report_to: "wandb"
-  dataloader_num_workers: 4
+  # Dataloader: each __getitem__ runs the processor (chat template +
+  # tokenize) on CPU, so keep workers high and pipeline deep to hide it
+  # behind the GPU step.
+  dataloader_num_workers: 8
+  dataloader_pin_memory: true
+  dataloader_persistent_workers: true
+  dataloader_prefetch_factor: 4
 
 eval:
   max_new_tokens: 512

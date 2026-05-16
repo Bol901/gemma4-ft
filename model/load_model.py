@@ -108,9 +108,26 @@ def load_model_with_lora(
             bnb_4bit_compute_dtype=torch_dtype,
         )
 
-    model = AutoModelForImageTextToText.from_pretrained(
-        model_id, **model_kwargs
-    )
+    try:
+        model = AutoModelForImageTextToText.from_pretrained(
+            model_id, **model_kwargs
+        )
+    except (ImportError, ValueError) as e:
+        # flash_attention_2 not built on this host -> fall back to sdpa
+        # instead of failing the whole run.
+        if model_kwargs.get("attn_implementation") != "sdpa":
+            logger.warning(
+                "attn_implementation=%s unavailable (%s); falling back to "
+                "sdpa.",
+                model_kwargs.get("attn_implementation"),
+                e,
+            )
+            model_kwargs["attn_implementation"] = "sdpa"
+            model = AutoModelForImageTextToText.from_pretrained(
+                model_id, **model_kwargs
+            )
+        else:
+            raise
 
     if use_qlora:
         from peft import prepare_model_for_kbit_training
